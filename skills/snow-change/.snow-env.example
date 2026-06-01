@@ -1,0 +1,22 @@
+# snow-change config — copy to `.snow-env` and fill in your own values.
+# This file is non-secret (URLs + account usernames + keychain prefix only).
+# Passwords live in the macOS Keychain, NOT here.
+#
+# Store each env's password once:
+#   security add-generic-password -U -s "<SNOW_KC_PREFIX>-<env>" -a "<user>" -w
+# e.g.  security add-generic-password -U -s "servicenow-prod" -a "svc_api" -w
+
+# Instance base URL per environment (no trailing slash)
+SNOW_URI_DEV="https://YOURORGdev.service-now.com"
+SNOW_URI_TEST="https://YOURORGtest.service-now.com"
+SNOW_URI_PROD="https://YOURORG.service-now.com"
+
+# API account username per environment. Naming is org-specific — some orgs drop
+# the _prod suffix on the prod account, so set each explicitly.
+SNOW_USER_DEV="svc_api_dev"
+SNOW_USER_TEST="svc_api_test"
+SNOW_USER_PROD="svc_api"
+
+# Keychain service-name prefix; the helper looks up "<prefix>-<env>".
+# Defaults to "servicenow" if unset.
+SNOW_KC_PREFIX="servicenow"
