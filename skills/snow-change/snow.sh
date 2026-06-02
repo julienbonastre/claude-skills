@@ -21,6 +21,11 @@
 # SNOW_PROD_WRITE_OK=1 is set. Reads are always allowed.
 set -euo pipefail
 
+# jq is used to slice JSON responses. Fail fast with a clear message rather than
+# erroring cryptically mid-call. (curl is likewise required for any API call.)
+command -v jq   >/dev/null 2>&1 || { echo "ERROR: 'jq' is required — install it (e.g. brew install jq / apt-get install jq)." >&2; exit 127; }
+command -v curl >/dev/null 2>&1 || { echo "ERROR: 'curl' is required." >&2; exit 127; }
+
 CONFIG="${SNOW_CONFIG:-$HOME/.claude/skills/snow-change/.snow-env}"
 # shellcheck disable=SC1090
 [ -f "$CONFIG" ] && source "$CONFIG"
@@ -72,7 +77,7 @@ resolve_sys_id() {
   if [[ "$id" =~ ^[0-9a-f]{32}$ ]]; then printf '%s' "$id"; return; fi
   if [[ "$id" =~ ^CHG[0-9]+$ ]]; then
     api GET "/api/now/table/change_request?sysparm_query=number=${id}&sysparm_limit=1&sysparm_fields=sys_id" \
-      | python3 -c "import sys,json; r=json.loads(sys.stdin.read()).get('result',[]); print(r[0]['sys_id'] if r else '')"
+      | jq -r '.result[0].sys_id // empty'
     return
   fi
   echo "ERROR: '$id' is neither a sys_id nor a CHG number" >&2; exit 2
@@ -157,7 +162,7 @@ case "$cmd" in
     # or email fragment (resolve the OPERATOR, not the API service account).
     q="${1:?user_name or email fragment required}"
     uid="$(api GET "/api/now/table/sys_user?sysparm_query=user_nameLIKE${q}^ORemailLIKE${q}^active=true&sysparm_limit=1&sysparm_fields=sys_id" \
-      | python3 -c "import sys,json; r=json.loads(sys.stdin.read()).get('result',[]); print(r[0]['sys_id'] if r else '')")"
+      | jq -r '.result[0].sys_id // empty')"
     [ -z "$uid" ] && { echo "ERROR: no active user matching '$q'" >&2; exit 4; }
     api GET "/api/now/table/sys_user_grmember?sysparm_query=user=${uid}&sysparm_display_value=all&sysparm_limit=100&sysparm_fields=group"
     ;;

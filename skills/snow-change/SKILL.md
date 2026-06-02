@@ -57,6 +57,9 @@ snow.sh --env <env> transition <id> <state-value>
 snow.sh --env <env> raw <METHOD> <path> [json]
 ```
 
+**Prereqs:** `curl` and `jq` (the helper fails fast with an install hint if
+either is missing).
+
 **Setup:** copy `.snow-env.example` → `.snow-env`, fill in your instance URLs,
 account usernames, and Keychain prefix, then store each env's password in the
 Keychain (`security add-generic-password -U -s "<prefix>-<env>" -a "<user>"
