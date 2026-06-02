@@ -2,7 +2,7 @@
 name: snow-change
 description: Create, update, or transition a ServiceNow Normal Change via the Table API. Use when the user asks to raise/update/move a SNOW change for an impacting card.
 user-invocable: true
-argument-hint: <create|update|transition|get|list> [CHG-number|sys_id] [--from PROJ-XXXX] [--state <n>] [--field value ...]
+argument-hint: <create|update|transition|close|get|list> [CHG-number|sys_id] [--from PROJ-XXXX] [--state <n>] [--field value ...]
 ---
 
 # ServiceNow Change Management
@@ -62,7 +62,7 @@ account usernames, and Keychain prefix, then store each env's password in the
 Keychain (`security add-generic-password -U -s "<prefix>-<env>" -a "<user>"
 -w`). `.snow-env` is git-ignored — never commit it.
 
-**PROD write guard:** create/update/transition against `--env prod` refuse
+**PROD write guard:** create/update/transition/close against `--env prod` refuse
 unless `SNOW_PROD_WRITE_OK=1` is exported. Only export it after explicit user
 go-ahead in the same turn. Reads are always free.
 
@@ -249,6 +249,48 @@ Review themselves. Don't transition past Draft (see Scope).
    or anything → Implementation in Progress). Require explicit user go-ahead.
 4. `snow.sh transition <id> <state-value>`.
 
+### close
+Populate the **Closure Information** fields after a change has been implemented.
+Only act on an **explicit** "close it" instruction from the operator — that
+instruction is the guardrail (closure is an administrative wrap-up, not a
+privileged create/approve).
+
+1. `snow.sh get <id>` and read back the implementation outcome (apply results,
+   any incidents).
+2. Map the outcome → the closure fields (table below). Use the real result —
+   `close_code` should reflect whether it caused incidents / was rolled back.
+3. **Preview the JSON**, then `snow.sh close <id> '<json>'` (prod-write-guarded).
+4. **`close` writes the FIELDS only — it does NOT advance the state to Closed.**
+   On instances where the change lifecycle is workflow-driven (observed on the
+   reference instance), the final transition (Implementation → Awaiting BVT →
+   Review → Closed) is a workflow action behind the form's "Complete
+   Implementation" / "Close" button and is **not** settable via the Table API
+   `state` field — a direct `state=7` (or even the legal next step) PATCH is
+   silently ignored. So: populate fields here, then have the operator click the
+   UI button (the mandatory fields will already be filled). Re-probe your own
+   instance — if a direct state set works there, follow `close` with
+   `transition`.
+
+#### Closure-Information fields (verify against your instance)
+
+| Form label | Field | Values (reference instance) |
+|---|---|---|
+| Close code | `close_code` | choice — e.g. `successful`, `successful_with_learnings`, a P4-incident option, a P1/P2/P3-incident option, `unsuccessful_rollback`. **Probe with `sys_choice`** (below) — labels/values are instance-specific. |
+| Implemented according to plan? | `u_implemented_to_plan` | `yes` / `no` / `Partial` |
+| Unexpected incidents caused? | `u_caused_incidents` | `yes` / `no` |
+| Delivered expected benefit? | `u_expected_benefit_delivered` | `yes` / `no` / `partial` |
+| Implemented to procedure? | `u_implemented_to_procedure` | `yes` / `no` |
+| Close notes | `close_notes` | free text — outcome summary |
+| Implementation TVT completed | `u_implementation_tvt_completed` | datetime (UTC on the wire) |
+| Actual start / end | `work_start` / `work_end` | datetime (UTC on the wire) |
+
+Probe the exact choice values for any choice field:
+```
+snow.sh raw GET "/api/now/table/sys_choice?sysparm_query=name=change_request^element=close_code^inactive=false^language=en&sysparm_fields=label,value,sequence"
+```
+The `u_*` field names and choice values above were probed on one instance —
+**re-probe before relying on them**; other orgs' closure forms differ.
+
 ### get / list / mine
 Read-only. Use freely.
 
@@ -259,7 +301,10 @@ Read-only. Use freely.
 - **Promote DEV → TEST → PROD** once non-prod creds are restored.
 - **PROD writes are guarded.** Only export `SNOW_PROD_WRITE_OK=1` after
   explicit user go-ahead in the same turn.
-- **Preview before every write.** No silent create/update/transition.
+- **Preview before every write.** No silent create/update/transition/close.
+- **Close only on an explicit instruction.** `close` writes closure fields but
+  never advances the lifecycle state (that's a UI/workflow action). The explicit
+  "close it" from the operator is the guardrail.
 - **Normal changes only.** Standard/Emergency → stop and ask.
 - **Never cross a CAB/approval gate without explicit user confirmation.**
 - **Dates: local input, UTC on the wire.** Confirm the window with the user.
@@ -321,4 +366,5 @@ owns it.
 /snow-change create --from PROJ-1234
 /snow-change update CHGxxxxxxx --u_implementation_plan "…"
 /snow-change transition CHGxxxxxxx 2
+/snow-change close CHGxxxxxxx '{"close_code":"successful","u_implemented_to_plan":"yes","u_caused_incidents":"no","close_notes":"…"}'
 ```
