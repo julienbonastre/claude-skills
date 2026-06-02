@@ -116,6 +116,29 @@ case "$cmd" in
     [ -z "$sys_id" ] && { echo "ERROR: change not found: $id" >&2; exit 4; }
     api PATCH "/api/now/table/change_request/${sys_id}" "{\"state\":\"${state}\"}"
     ;;
+  close)
+    # Populate the closure-information fields (close_code, the implemented-to-
+    # plan / benefit / incidents choices, close_notes, timestamps). Pass the
+    # field set as a JSON body — same shape as `update`.
+    #
+    # IMPORTANT: this writes closure FIELDS only; it does NOT advance the state
+    # to Closed. On instances where the change lifecycle is workflow-driven, the
+    # final state transition (Implementation -> Awaiting BVT -> Review -> Closed)
+    # is a workflow action behind the form's "Complete Implementation" / "Close"
+    # button and cannot be set via the Table API `state` field. Populate here,
+    # then complete the change via the UI button (the mandatory fields will
+    # already be filled). Verify your own instance: if a direct state set works,
+    # use `transition` after this.
+    require_prod_ok
+    id="${1:?sys_id or CHG number required}"; body="${2:?json body of closure fields required}"
+    sys_id="$(resolve_sys_id "$id")"
+    [ -z "$sys_id" ] && { echo "ERROR: change not found: $id" >&2; exit 4; }
+    api PATCH "/api/now/table/change_request/${sys_id}" "$body"
+    echo "" >&2
+    echo "Closure fields written. NOTE: state is NOT advanced — complete the" >&2
+    echo "change via the UI 'Complete Implementation' / 'Close' button (lifecycle" >&2
+    echo "transitions are workflow-gated, not settable via the Table API state field)." >&2
+    ;;
   group)
     q="${1:?name fragment required}"
     api GET "/api/now/table/sys_user_group?sysparm_query=nameLIKE${q}^active=true&sysparm_limit=10&sysparm_fields=name,sys_id"
@@ -148,6 +171,8 @@ Write (refused against --env prod unless SNOW_PROD_WRITE_OK=1):
   create '<json>'               POST a new change_request
   update <id> '<json>'          PATCH fields on a change
   transition <id> <state>       Shortcut to PATCH only `state`
+  close <id> '<json>'           PATCH closure fields (close_code, notes, etc.);
+                                does NOT advance state — finish via the UI
 
 Escape hatch:
   raw <METHOD> <path> [json]    Arbitrary call against the instance
