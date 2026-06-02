@@ -257,10 +257,25 @@ privileged create/approve).
 
 1. `snow.sh get <id>` and read back the implementation outcome (apply results,
    any incidents).
-2. Map the outcome → the closure fields (table below). Use the real result —
-   `close_code` should reflect whether it caused incidents / was rolled back.
-3. **Preview the JSON**, then `snow.sh close <id> '<json>'` (prod-write-guarded).
-4. **`close` writes the FIELDS only — it does NOT advance the state to Closed.**
+2. **Close child change tasks first, scoped to the operator's remit** (a change
+   cannot complete while its CTASKs are open):
+   - `snow.sh tasks <id>` — list the CTASKs with their `state` + `assignment_group`.
+   - `snow.sh my-groups <operator-user-or-email>` — the operator's active
+     assignment-group memberships. **Resolve the OPERATOR (the human who said
+     "close it"), NOT the API service account** — the SA's own memberships are
+     irrelevant and usually empty.
+   - For each OPEN task: close it **only if its `assignment_group` is one of the
+     operator's groups**. `snow.sh close-task <ctask-sysid> '<json>'` with e.g.
+     `{"state":"3","close_code":"successful","close_notes":"…"}` (state 3 =
+     Closed Complete; `change_task` close_code choices differ from the parent —
+     probe via `sys_choice` on `change_task`).
+   - **Skip + report** any task whose group the operator is NOT in — that team
+     owns its own closure. Never close out-of-remit tasks. Cancelled/already-
+     closed tasks: leave alone.
+3. Map the outcome → the parent closure fields (table below). Use the real
+   result — `close_code` should reflect whether it caused incidents / rolled back.
+4. **Preview the JSON**, then `snow.sh close <id> '<json>'` (prod-write-guarded).
+5. **`close` writes the FIELDS only — it does NOT advance the state to Closed.**
    On instances where the change lifecycle is workflow-driven (observed on the
    reference instance), the final transition (Implementation → Awaiting BVT →
    Review → Closed) is a workflow action behind the form's "Complete

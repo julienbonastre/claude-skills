@@ -151,6 +151,34 @@ case "$cmd" in
     q="${1:?name fragment or user_name required}"
     api GET "/api/now/table/sys_user?sysparm_query=nameLIKE${q}^ORuser_nameLIKE${q}^active=true&sysparm_limit=10&sysparm_fields=user_name,name,sys_id,email"
     ;;
+  my-groups)
+    # The active assignment groups a user belongs to — used to scope which
+    # change tasks are within the operator's remit to close. Accepts a user_name
+    # or email fragment (resolve the OPERATOR, not the API service account).
+    q="${1:?user_name or email fragment required}"
+    uid="$(api GET "/api/now/table/sys_user?sysparm_query=user_nameLIKE${q}^ORemailLIKE${q}^active=true&sysparm_limit=1&sysparm_fields=sys_id" \
+      | python3 -c "import sys,json; r=json.loads(sys.stdin.read()).get('result',[]); print(r[0]['sys_id'] if r else '')")"
+    [ -z "$uid" ] && { echo "ERROR: no active user matching '$q'" >&2; exit 4; }
+    api GET "/api/now/table/sys_user_grmember?sysparm_query=user=${uid}&sysparm_display_value=all&sysparm_limit=100&sysparm_fields=group"
+    ;;
+  tasks)
+    # List the change tasks (change_task) on a change, with their state +
+    # assignment_group, so closure can be scoped to the operator's remit.
+    id="${1:?sys_id or CHG number required}"
+    sys_id="$(resolve_sys_id "$id")"
+    [ -z "$sys_id" ] && { echo "ERROR: change not found: $id" >&2; exit 4; }
+    api GET "/api/now/table/change_task?sysparm_query=change_request=${sys_id}&sysparm_display_value=all&sysparm_fields=number,short_description,state,assignment_group,assigned_to,sys_id"
+    ;;
+  close-task)
+    # Close a SINGLE change task (state 3 = Closed Complete by default). Pass the
+    # CTASK sys_id (from `tasks`) + a JSON body of closure fields (close_code,
+    # close_notes, and optionally a different `state`). Caller is responsible for
+    # confirming the task's assignment_group is within the operator's remit —
+    # see the `close` procedure in SKILL.md. Prod-write-guarded.
+    require_prod_ok
+    tsid="${1:?change_task sys_id required}"; body="${2:?json body of closure fields required}"
+    api PATCH "/api/now/table/change_task/${tsid}" "$body"
+    ;;
   raw)
     api "${1:?method}" "${2:?path}" "${3:-}"
     ;;
@@ -166,6 +194,8 @@ Read:
   group <name-fragment>         Lookup assignment_group sys_id
   ci <name-fragment>            Lookup cmdb_ci sys_id
   user <name-or-username>       Lookup sys_user sys_id
+  my-groups <user-or-email>     The operator's active assignment-group memberships
+  tasks <id>                    List change tasks (CTASKs) on a change + their groups
 
 Write (refused against --env prod unless SNOW_PROD_WRITE_OK=1):
   create '<json>'               POST a new change_request
@@ -173,6 +203,8 @@ Write (refused against --env prod unless SNOW_PROD_WRITE_OK=1):
   transition <id> <state>       Shortcut to PATCH only `state`
   close <id> '<json>'           PATCH closure fields (close_code, notes, etc.);
                                 does NOT advance state — finish via the UI
+  close-task <ctask-sysid> '<json>'  Close ONE change task (remit-scoped — caller
+                                must confirm the task's group is the operator's)
 
 Escape hatch:
   raw <METHOD> <path> [json]    Arbitrary call against the instance
